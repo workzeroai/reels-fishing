@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>섬 미리보기</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #e7a48c; font: 13px/1.45 system-ui, -apple-system, sans-serif; }
+  canvas { display: block; }
+  #info { position: fixed; left: 12px; top: 10px; max-width: calc(100vw - 48px); padding: 8px 12px; border-radius: 10px; background: rgba(255, 248, 240, .82); color: #2b2233; }
+  #info b { font-weight: 600; }
+  kbd { padding: 0 4px; border: 1px solid #a99; border-radius: 4px; background: #fff; font: inherit; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="info"><b>섬 미리보기</b> · 드래그로 회전, 휠로 확대<br>
+<kbd>0</kbd> 전체 · <kbd>1</kbd> 곶 <kbd>2</kbd> 잔교 <kbd>3</kbd> 해변 <kbd>4</kbd> 방파제 (낚시 카메라 자리) · <kbd>W</kbd> 걷기 가능 지도<br>
+<span id="stat"></span></div>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { buildIsland } from "../js/island.js";
+import { ZCOLOR } from "../js/util.js";
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const FOG = new THREE.Color(0xe7a48c);
+scene.background = FOG.clone(); scene.fog = new THREE.Fog(FOG, 55, 180);
+const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 400);
+scene.add(new THREE.HemisphereLight(0xe6ecff, 0x3d4a5c, 1.0));
+const sun = new THREE.DirectionalLight(0xffcfa0, 2.6); sun.position.set(-10, 24, -34).normalize().multiplyScalar(40); scene.add(sun);
+const fill = new THREE.DirectionalLight(0x9fd3ff, 0.45); fill.position.set(8, 10, 16); scene.add(fill);
+const water = new THREE.Mesh(new THREE.PlaneGeometry(400, 400), new THREE.MeshStandardMaterial({ color: 0x2a7fa0, transparent: true, opacity: 0.55, roughness: 0.3, depthWrite: false }));
+water.rotation.x = -Math.PI / 2; scene.add(water);
+
+// 물보라 흉내: 흰 점들이 튀었다가 떨어진다
+const parts = [];
+const partG = new THREE.SphereGeometry(0.08, 5, 3);
+function burst(pos, color, count, power) {
+  for (let i = 0; i < count; i++) {
+    const m = new THREE.Mesh(partG, new THREE.MeshBasicMaterial({ color, transparent: true }));
+    m.position.copy(pos); scene.add(m);
+    parts.push({ m, v: new THREE.Vector3((Math.random() - 0.5) * 2, 2 + Math.random() * 3, (Math.random() - 0.5) * 2).multiplyScalar(power), life: 1 });
+  }
+}
+
+const isl = buildIsland(scene, { burst });
+window.isl = isl;
+
+// 자리 표시: 자리(구), 과녁(고리), 어항 받침(상자 테두리), 자리→과녁 줄, 낚시 카메라 자리(작은 원뿔)
+const keys = ["marketer", "creator", "beginner", "open"];
+for (const k of keys) {
+  const s = isl.spots[k], col = new THREE.Color(ZCOLOR[k]);
+  const seat = new THREE.Mesh(new THREE.SphereGeometry(0.3, 12, 8), new THREE.MeshBasicMaterial({ color: col })); seat.position.copy(s.seat).y += 0.3; scene.add(seat);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.6, 0.9, 32), new THREE.MeshBasicMaterial({ color: col, side: THREE.DoubleSide })); ring.rotation.x = -Math.PI / 2; ring.position.copy(s.target).y = 0.1; scene.add(ring);
+  const reel = new THREE.Mesh(new THREE.SphereGeometry(0.18, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffffff })); reel.position.copy(s.seat).addScaledVector(s.face, 4.6).setY(0.1); scene.add(reel);
+  const tank = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(3.5, 1.9, 2.1)), new THREE.LineBasicMaterial({ color: col }));
+  tank.position.copy(s.tank).y += 0.95; tank.rotation.y = Math.atan2(s.face.x, s.face.z); scene.add(tank);
+  scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([s.seat.clone().setY(s.seat.y + 0.3), s.target.clone().setY(0.1)]), new THREE.LineBasicMaterial({ color: col })));
+  const right = new THREE.Vector3(-s.face.z, 0, s.face.x);
+  s.cam = s.seat.clone().addScaledVector(s.face, -4).addScaledVector(right, 1.7).setY(s.seat.y + 6.5);
+  const cm = new THREE.Mesh(new THREE.ConeGeometry(0.25, 0.6, 8), new THREE.MeshBasicMaterial({ color: col })); cm.position.copy(s.cam); cm.rotation.x = Math.PI; scene.add(cm);
+}
+const st = new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.1, 12), new THREE.MeshBasicMaterial({ color: 0xff3df0 })); st.position.copy(isl.start); scene.add(st);
+
+// 걷기 가능 지도 (W로 켜고 끔)
+let walkPts;
+function walkMap() {
+  if (walkPts) { walkPts.visible = !walkPts.visible; return; }
+  const p = [], c = [];
+  for (let x = -32; x <= 32; x += 0.5) for (let z = -32; z <= 32; z += 0.5) {
+    const y = isl.surfaceAt(x, z);
+    if (y === null) { if (isl.groundH(x, z) > 0) { p.push(x, isl.groundH(x, z) + 0.12, z); c.push(1, 0.2, 0.2); } }
+    else { p.push(x, y + 0.12, z); c.push(0.2, 1, 0.3); }
+  }
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(p, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(c, 3));
+  walkPts = new THREE.Points(g, new THREE.PointsMaterial({ size: 0.18, vertexColors: true })); scene.add(walkPts);
+}
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+function view(i) {
+  if (i === 0) { camera.position.set(28, 42, 52); controls.target.set(0, 0, -4); }
+  else { const s = isl.spots[keys[i - 1]]; camera.position.copy(s.cam); controls.target.copy(s.target); }
+  controls.update();
+}
+view(0);
+addEventListener("keydown", e => { if (e.key >= "0" && e.key <= "4") view(+e.key); if (e.key === "w" || e.key === "W") walkMap(); });
+
+function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+addEventListener("resize", resize); resize();
+
+const clock = new THREE.Clock(), stat = document.getElementById("stat");
+let acc = 0;
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.05), t = clock.elapsedTime;
+  isl.update(dt, t);
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const q = parts[i]; q.v.y -= 9 * dt; q.m.position.addScaledVector(q.v, dt); q.life -= dt * 0.9; q.m.material.opacity = Math.max(0, q.life);
+    if (q.life <= 0) { scene.remove(q.m); q.m.material.dispose(); parts.splice(i, 1); }
+  }
+  controls.update();
+  renderer.render(scene, camera);
+  if ((acc += dt) > 0.5) { acc = 0; stat.textContent = `그리기 ${renderer.info.render.calls}번 · 삼각형 ${(renderer.info.render.triangles / 1000).toFixed(0)}k`; }
+});
+</script>
+</body>
+</html>

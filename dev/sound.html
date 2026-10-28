@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>소리 미리듣기</title>
+<style>
+  :root { --bg: #0b1d24; --panel: #12303a; --ink: #eef6f7; --muted: #9fb8bd; --accent: #5ee3d0; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 20px 16px 40px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  p { color: var(--muted); margin: 0 0 16px; }
+  h2 { font-size: 15px; color: var(--muted); margin: 22px 0 8px; font-weight: 500; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+  button { background: var(--panel); color: var(--ink); border: 1px solid #2a4c56; border-radius: 12px; padding: 12px 10px; font-size: 14px; text-align: left; touch-action: manipulation; }
+  button small { display: block; color: var(--muted); font-size: 12px; }
+  button[aria-pressed="true"] { border-color: var(--accent); background: #164049; }
+  .row { display: flex; align-items: center; gap: 12px; }
+  input[type=range] { flex: 1; }
+  #state { font-size: 13px; color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>소리 미리듣기</h1>
+  <p>게임에 쓰는 소리를 하나씩 들어 보는 페이지예요. 아무 버튼이나 처음 누르면 소리가 켜져요. 아이폰은 무음 스위치를 꺼 주세요.</p>
+  <div id="state">소리: 꺼짐</div>
+
+  <h2>장면별 배경음악 (하나를 고르면 계속 흘러요)</h2>
+  <div class="grid" id="scenes"></div>
+
+  <h2>줄 긴장 (감는 중 삐걱 소리)</h2>
+  <div class="row"><input type="range" id="tension" min="0" max="1" step="0.01" value="0"><span id="tv">0</span></div>
+
+  <h2>낚시 효과음</h2>
+  <div class="grid" id="fx"></div>
+
+  <h2>발소리</h2>
+  <div class="grid" id="steps"></div>
+</main>
+<script type="module">
+import { SFX } from "../js/audio.js";
+const SCENES = [["menu", "고르기", "잔잔한 오음계"], ["walk", "섬 걷기", "줄 튕김·셰이커"], ["wait", "찌 기다리기", "거의 조용, 파도"], ["tease", "톡톡", "낮은 긴장음"], ["fight", "챔질~감기", "빠른 박자"], ["result", "결과", "마무리 음악 뒤 잔잔"]];
+const FX = [["plop", "찌 퐁당"], ["nibble", "톡톡 (가짜 입질)"], ["dunk", "쑥 잠김"], ["hook", "챔질 (휙·쿵·첨벙)"], ["reel", "릴 감기 (연타 한 번)"], ["runStart", "차고 나감 (경고)"], ["holdOk", "맞게 버팀"], ["jump", "물 위로 뛰어오름"], ["splash", "건져 올리는 첨벙"], ["fanfare", "잡았다 팡파르"], ["fanfareGold", "금색 팡파르"], ["snap", "줄 끊김"], ["miss", "놓침"], ["drop", "어항에 퐁당·거품"], ["jingle", "결과 마무리"]];
+const STEPS = [["sand", "모래"], ["grass", "풀"], ["wood", "나무 잔교"], ["rock", "바위"], ["concrete", "방파제"]];
+const $ = id => document.getElementById(id);
+const wake = () => { SFX.init(); SFX.startAmbience(); $("state").textContent = `소리: ${SFX.state === "running" ? "켜짐" : SFX.state}`; };
+const btn = (label, sub, fn) => { const b = document.createElement("button"); b.innerHTML = `${label}${sub ? `<small>${sub}</small>` : ""}`; b.addEventListener("click", () => { wake(); fn(b); }); return b; };
+SCENES.forEach(([k, label, sub]) => $("scenes").appendChild(btn(label, sub, b => { SFX.setScene(k); document.querySelectorAll("#scenes button").forEach(x => x.setAttribute("aria-pressed", String(x === b))); })));
+FX.forEach(([k, label]) => $("fx").appendChild(btn(label, "", () => k === "fanfareGold" ? SFX.fanfare(true) : k === "fanfare" ? SFX.fanfare(false) : k === "reel" ? SFX.reel(Math.random()) : SFX[k]())));
+STEPS.forEach(([k, label]) => $("steps").appendChild(btn(label, "", () => { for (let i = 0; i < 4; i++) setTimeout(() => SFX.step(k), i * 280); })));
+$("tension").addEventListener("input", e => { wake(); const k = Number(e.target.value); $("tv").textContent = k.toFixed(2); SFX.setTension(k); });
+</script>
+</body>
+</html>

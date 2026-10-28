@@ -1,0 +1,335 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>릴스 낚시</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+<style>
+/* 한 화면 게임: 캔버스 전체 + 위쪽 HUD + 아래쪽 시트. 해 질 녘 바다 하나의 색으로 고정 */
+:root {
+  --ink: #f2fbfc;
+  --muted: #a9cdd5;
+  --panel: rgba(8, 28, 36, 0.88);
+  --panel-line: rgba(170, 228, 240, 0.2);
+  --accent: #5ee3d0;
+  --accent-ink: #032a2c;
+  --gray-fish: #93a3b6;
+  --marketer: #4f8cff;
+  --creator: #ff9a3c;
+  --beginner: #8ee05a;
+  --gold: #ffc531;
+  --low: #ff8f87; --ok: #ffd166; --good: #7be0b8; --great: #ffb4f0;
+  --font-display: "Jua", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --font-body: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { margin: 0; background: #20444c; color: var(--ink); font-family: var(--font-body); overflow: hidden; -webkit-tap-highlight-color: transparent; user-select: none; -webkit-user-select: none; }
+#app { position: fixed; inset: 0; }
+canvas#c { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+/* 휴대폰: 버튼은 두 번 탭 확대 없이 바로, 길게 눌러도 선택·메뉴가 뜨지 않게 */
+button { touch-action: manipulation; }
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+button { font: inherit; color: inherit; cursor: pointer; }
+button:focus-visible, .card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* HUD */
+.hud { position: absolute; left: 0; right: 0; top: 0; z-index: 3; pointer-events: none;
+  padding: calc(env(safe-area-inset-top, 0px) + 12px) max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 8px; }
+.hud-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.score { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 14px; padding: 8px 12px; flex: 0 0 auto; white-space: nowrap; }
+.score .lbl { font-size: 12px; color: var(--muted); }
+.score .num { font-family: var(--font-display); font-size: 26px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.score .sub { font-size: 12px; color: var(--muted); }
+.hud-btns { display: flex; gap: 6px; pointer-events: auto; flex-wrap: wrap; justify-content: flex-end; }
+.chip-btn { background: var(--panel); border: 1px solid var(--panel-line); border-radius: 999px; padding: 6px 12px; font-size: 13px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--muted); background: var(--panel); border: 1px solid var(--panel-line); border-radius: 12px; padding: 6px 10px; width: fit-content; max-width: 100%; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+
+/* 3D 위에 붙는 표시 */
+.zlabel { position: absolute; z-index: 2; transform: translate(-50%, -100%); pointer-events: none; font-family: var(--font-display); font-size: 14px; padding: 3px 10px; border-radius: 999px; background: rgba(8, 28, 36, 0.78); border: 1.5px solid currentColor; white-space: nowrap; transition: opacity .25s; }
+.aimtag { position: absolute; z-index: 2; transform: translate(-50%, 14px); pointer-events: none; font-size: 12.5px; padding: 2px 8px; border-radius: 999px; background: rgba(8, 28, 36, 0.82); white-space: nowrap; }
+.bite { position: absolute; z-index: 4; width: 64px; height: 64px; margin: -88px 0 0 -32px; pointer-events: none; display: grid; place-items: center; }
+.bite .ring { position: absolute; inset: 0; border-radius: 50%; background: conic-gradient(var(--c, #fff) calc(var(--p, 1) * 360deg), rgba(255,255,255,0.12) 0); -webkit-mask: radial-gradient(circle, transparent 54%, #000 56%); mask: radial-gradient(circle, transparent 54%, #000 56%); }
+.bite .mark { font-family: var(--font-display); font-size: 34px; line-height: 1; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.5); animation: pop .35s ease-out; }
+.bite.gold .mark { color: var(--gold); }
+@keyframes pop { from { transform: scale(.4); } to { transform: scale(1); } }
+/* 큰 입질: 터지는 선 + 커지는 ! */
+.bite.hit .mark { font-size: 46px; animation: bang .32s cubic-bezier(.2,1.6,.4,1); }
+.bite .rays { position: absolute; inset: -34px; border-radius: 50%; opacity: 0; background: repeating-conic-gradient(from 8deg, var(--c, #fff) 0 6deg, transparent 6deg 30deg); -webkit-mask: radial-gradient(circle, transparent 42%, #000 46%, #000 60%, transparent 70%); mask: radial-gradient(circle, transparent 42%, #000 46%, #000 60%, transparent 70%); }
+.bite.hit .rays { animation: rays .45s ease-out; }
+@keyframes bang { 0% { transform: scale(2.4); } 100% { transform: scale(1); } }
+@keyframes rays { 0% { opacity: 1; transform: scale(.6) rotate(0deg); } 100% { opacity: 0; transform: scale(1.35) rotate(12deg); } }
+/* 만화식 효과 글자 (챔질! · 잡았다!) */
+.pow { position: absolute; z-index: 5; transform: translate(-50%, -50%); pointer-events: none; font-family: var(--font-display); font-size: 40px; color: #fff; -webkit-text-stroke: 2px #0b2a33; paint-order: stroke; text-shadow: 0 4px 0 #0b2a33, 0 8px 18px rgba(0,0,0,.4); white-space: nowrap; opacity: 0; }
+.pow.on { animation: powIn .7s cubic-bezier(.2,1.5,.4,1) forwards; }
+.pow.gold { color: var(--gold); }
+@keyframes powIn { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.3) rotate(-8deg); } 25% { opacity: 1; transform: translate(-50%, -50%) scale(1.15) rotate(3deg); } 70% { opacity: 1; transform: translate(-50%, -60%) scale(1) rotate(0); } 100% { opacity: 0; transform: translate(-50%, -80%) scale(.95); } }
+.flash { position: absolute; inset: 0; z-index: 3; pointer-events: none; background: radial-gradient(circle at var(--x, 50%) var(--y, 50%), rgba(255,255,255,.75), rgba(255,255,255,0) 60%); opacity: 0; }
+.flash.on { animation: flash .28s ease-out; }
+@keyframes flash { from { opacity: 1; } to { opacity: 0; } }
+/* 연타 게이지 */
+.reel { position: absolute; z-index: 4; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 70px); transform: translateX(-50%); width: min(340px, calc(100% - 32px)); pointer-events: none; display: grid; gap: 6px; justify-items: center; }
+.reel .cue { font-family: var(--font-display); font-size: 30px; line-height: 1; color: #fff; -webkit-text-stroke: 1.5px #0b2a33; paint-order: stroke; text-shadow: 0 3px 0 #0b2a33; display: flex; align-items: center; gap: 8px; }
+.reel .cue small { font-family: var(--font-body); font-size: 12px; -webkit-text-stroke: 0; text-shadow: none; color: var(--muted); background: var(--panel); padding: 2px 8px; border-radius: 999px; }
+.reel .cue.tap { animation: tapPulse .12s ease-out; }
+.reel .cue { transition: opacity .15s; }
+.reel.run .cue { opacity: .3; } /* 차고 나가는 동안엔 감지 말고 버티기 */
+@keyframes tapPulse { from { transform: scale(1.18); } to { transform: scale(1); } }
+.reel .spool { width: 30px; height: 30px; border-radius: 50%; border: 4px solid #fff; border-right-color: transparent; box-shadow: 0 2px 0 #0b2a33; transform: rotate(var(--rot, 0deg)); }
+.reel .bar { width: 100%; height: 18px; border-radius: 999px; background: var(--panel); border: 2px solid rgba(255,255,255,.7); overflow: hidden; position: relative; }
+.reel .fill { position: absolute; inset: 0; transform-origin: left; transform: scaleX(var(--p, 0)); background: linear-gradient(90deg, var(--c, #5ee3d0), #fff); transition: transform .06s linear; }
+.reel.run .bar { border-color: #ff6b5e; animation: jitter .09s linear infinite; }
+@keyframes jitter { 0% { transform: translateX(-2px); } 50% { transform: translateX(2px); } 100% { transform: translateX(-2px); } }
+.reel .time { width: 70%; height: 4px; border-radius: 999px; background: rgba(255,255,255,.15); overflow: hidden; }
+.reel .time i { display: block; height: 100%; background: #fff; transform-origin: left; transform: scaleX(var(--t, 1)); }
+.reel .warn { font-size: 12.5px; color: #ffb3ab; min-height: 1em; }
+/* 줄 긴장: 초록 → 노랑 → 빨강. 끝까지 차면 끊어짐 */
+.reel .line { width: 100%; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+.reel .tbar { flex: 1; height: 8px; border-radius: 999px; background: rgba(255,255,255,.14); overflow: hidden; }
+.reel .tbar i { display: block; height: 100%; transform-origin: left; transform: scaleX(var(--k, 0)); background: hsl(calc(130 - 130 * var(--k, 0)) 80% 55%); transition: transform .06s linear; }
+.reel.danger .tbar { animation: jitter .08s linear infinite; }
+/* 버티기 신호: 화면 가운데 위쪽에 큰 화살표 */
+.pull { position: absolute; z-index: 5; left: 50%; top: 30%; transform: translate(-50%, -50%); pointer-events: none; display: grid; justify-items: center; gap: 2px; }
+.pull b { font-size: 76px; line-height: 1; color: #ff6b5e; -webkit-text-stroke: 3px #0b2a33; paint-order: stroke; text-shadow: 0 5px 0 #0b2a33; animation: nudge .5s ease-in-out infinite; }
+.pull span { font-family: var(--font-display); font-size: 26px; color: #fff; -webkit-text-stroke: 1.5px #0b2a33; paint-order: stroke; text-shadow: 0 3px 0 #0b2a33; }
+.pull small { font-size: 12px; color: var(--muted); background: var(--panel); padding: 2px 8px; border-radius: 999px; }
+.pull.ok b { color: #5ee38a; animation: none; }
+@keyframes nudge { 0%, 100% { transform: translate(0, 0); } 50% { transform: translate(var(--nx, 0), var(--ny, 0)); } }
+/* 건져 올린 순간 띠 */
+.catch { position: absolute; z-index: 5; left: 50%; top: 21%; transform: translateX(-50%); pointer-events: none; text-align: center; background: var(--panel); border: 2px solid var(--c, #fff); border-radius: 18px; padding: 8px 18px; opacity: 0; }
+.catch.on { animation: catchIn 1.25s ease-out forwards; }
+.catch b { display: block; font-family: var(--font-display); font-weight: 400; font-size: 22px; color: var(--c, #fff); white-space: nowrap; }
+.catch span { font-size: 12.5px; color: var(--muted); }
+@keyframes catchIn { 0% { opacity: 0; transform: translateX(-50%) translateY(10px) scale(.9); } 15% { opacity: 1; transform: translateX(-50%) scale(1.04); } 25% { transform: translateX(-50%) scale(1); } 80% { opacity: 1; } 100% { opacity: 0; } }
+.num.bump { animation: bump .35s ease-out; }
+@keyframes bump { 0% { transform: scale(1.25); color: var(--accent); } 100% { transform: scale(1); } }
+.coach { position: absolute; z-index: 3; left: 50%; bottom: calc(env(safe-area-inset-bottom, 0px) + 74px); transform: translateX(-50%); pointer-events: none; text-align: center; font-family: var(--font-display); font-size: 18px; background: var(--panel); border: 1px solid var(--panel-line); padding: 8px 16px; border-radius: 999px; white-space: nowrap; }
+.coach small { display: block; font-family: var(--font-body); font-size: 11.5px; color: var(--muted); }
+.toast { position: absolute; left: 50%; top: 24%; transform: translate(-50%, -50%); z-index: 5; font-family: var(--font-display); font-size: 22px; background: var(--panel); border: 1px solid var(--panel-line); padding: 8px 18px; border-radius: 999px; pointer-events: none; opacity: 0; transition: opacity .25s; white-space: nowrap; }
+.toast.on { opacity: 1; }
+.skip { position: absolute; z-index: 4; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(env(safe-area-inset-bottom, 0px) + 16px); }
+
+/* 걷기: 자리 이름표는 화면 밖이면 가장자리에 붙고 화살표로 방향을 가리킨다 */
+.zlabel small { display: block; font-family: var(--font-body); font-size: 11px; color: var(--muted); text-align: center; }
+.zlabel.edge::before { content: "➤"; position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) rotate(var(--ang, 0rad)) translateX(calc(50% + 34px)); font-size: 14px; }
+/* 자리에 오면 머리 위에 뜨는 안내 */
+.arrive { position: absolute; z-index: 5; transform: translate(-50%, -100%); display: grid; justify-items: center; gap: 4px; background: var(--panel); border: 1px solid var(--panel-line); border-radius: 16px; padding: 10px 14px; box-shadow: 0 10px 26px rgba(0,0,0,.35); text-align: center; max-width: calc(100vw - 24px); }
+.arrive b { font-family: var(--font-display); font-weight: 400; font-size: 19px; }
+.arrive span { font-size: 12.5px; color: var(--muted); }
+.arrive .primary { font-size: 16px; padding: 9px 16px; margin-top: 4px; }
+.arrive small { font-size: 11px; color: var(--muted); }
+.between .row-btns { margin-top: 4px; } .between .row-btns button, .arrive .primary { white-space: nowrap; } .between .primary { font-size: 16px; padding: 9px 16px; } .between .ghost { padding: 9px 12px; font-size: 13px; }
+.cast-lines { list-style: none; margin: -4px 0 0; padding: 0; display: grid; gap: 2px; font-size: 12.5px; color: var(--muted); text-align: center; }
+/* 화면 끌기 조이스틱 */
+.stick { position: absolute; z-index: 3; width: 96px; height: 96px; margin: -48px 0 0 -48px; border-radius: 50%; border: 2px solid rgba(255,255,255,.35); background: rgba(8,28,36,.25); pointer-events: none; }
+.stick i { position: absolute; left: 50%; top: 50%; width: 38px; height: 38px; margin: -19px 0 0 -19px; border-radius: 50%; background: rgba(255,255,255,.75); transform: translate(var(--kx, 0), var(--ky, 0)); }
+/* 추천 세트 카드 */
+.sets { display: grid; gap: 10px; }
+.setc { display: grid; grid-template-columns: 74px 1fr; gap: 12px; align-items: center; text-align: left; background: rgba(255,255,255,0.04); border: 1.5px solid var(--panel-line); border-radius: 16px; padding: 10px; color: var(--ink); transition: border-color .15s, transform .15s; }
+.setc:hover, .setc:focus-visible { border-color: #fff; transform: translateY(-2px); }
+.setc .thumb { position: relative; width: 74px; aspect-ratio: 9 / 16; border-radius: 10px; overflow: hidden; background: var(--bg); }
+.setc .thumb .art { position: absolute; left: 50%; top: 50%; width: 60%; transform: translate(-50%, -50%); }
+.setc .thumb .cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.setc .body { display: grid; gap: 4px; }
+.setc .body > b { font-family: var(--font-display); font-weight: 400; font-size: 19px; }
+.setc .desc { font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+.setc .fx { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.setc .fx span { justify-content: flex-start; }
+.setc .mix { font-size: 11px; color: var(--muted); opacity: .8; }
+@media (prefers-reduced-motion: reduce) { .setc { transition: none; } }
+
+/* 아래 시트 */
+/* 팝업은 화면 가운데에 띄우고 둘레에 장면이 보이게 (아래에 붙이지 않음) */
+.sheet { position: absolute; z-index: 4; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(600px, calc(100% - 32px)); max-height: min(74%, 760px); overflow-y: auto;
+  background: var(--panel); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--panel-line); border-radius: 22px; box-shadow: 0 24px 60px rgba(0, 0, 0, .45);
+  --pad: 22px; padding: var(--pad) var(--pad) 18px; }
+.sheet.result { top: 58%; max-height: min(64%, 700px); } /* 결과: 가운데보다 조금 아래, 위 빈 곳에 어항 */
+@media (max-aspect-ratio: 4/5) { .sheet.result { top: 63%; max-height: 58%; } }
+/* 지형 고르기: 바다를 봐야 하므로 아래에 떠 있는 작은 막대 */
+.sheet.dock { top: auto; bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); transform: translateX(-50%); width: min(620px, calc(100% - 24px)); --pad: 14px; padding: 14px 14px 12px; box-shadow: 0 12px 30px rgba(0, 0, 0, .35); }
+.sheet-inner { display: grid; gap: 14px; }
+@media (max-width: 460px) { .sheet { --pad: 16px; padding: 18px 16px 14px; } .sheet.dock { --pad: 12px; padding: 12px 12px 10px; } }
+.step-no { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.sheet h2 { font-family: var(--font-display); font-weight: 400; font-size: 23px; margin: 0; line-height: 1.25; text-wrap: balance; }
+.sheet h2:focus { outline: none; }
+.sheet .hint { margin: -6px 0 0; font-size: 13px; color: var(--muted); }
+.carousel { display: flex; gap: 10px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 4px 2px 10px; margin: 0 -2px; scrollbar-width: none; }
+.carousel::-webkit-scrollbar { display: none; }
+.card { flex: 0 0 auto; width: min(132px, 33vw); aspect-ratio: 9 / 16; scroll-snap-align: start; border-radius: 16px; border: 2px solid transparent; padding: 10px; position: relative; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; text-align: left; color: #fff; background: var(--bg); box-shadow: 0 6px 18px rgba(0,0,0,0.35); transition: transform .15s, border-color .15s; }
+.card:hover { transform: translateY(-2px); }
+.card[aria-pressed="true"] { border-color: #fff; transform: translateY(-4px); }
+.card .top { display: flex; justify-content: space-between; align-items: center; font-size: 11px; opacity: .9; }
+.card .art { position: absolute; left: 50%; top: 38%; transform: translate(-50%, -50%); width: 62%; opacity: .95; }
+.card .title { font-family: var(--font-display); font-size: 15.5px; line-height: 1.25; text-shadow: 0 2px 6px rgba(0,0,0,0.35); position: relative; text-wrap: balance; }
+.card .title.big { font-size: 16.5px; }
+/* 실제 커버 */
+.card .cover { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; }
+.card .top, .card .title, .card .tag { position: relative; z-index: 1; }
+.card.real { padding: 8px; }
+.card.real .top { background: rgba(0,0,0,.45); border-radius: 999px; padding: 2px 8px; width: fit-content; gap: 6px; }
+#covers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; padding: 4px 0 2px; }
+#covers .card.hookc { width: 100%; aspect-ratio: 5 / 4; }
+@media (max-width: 460px) { #covers .card.hookc { aspect-ratio: 4 / 5; } }
+#covers .card .title.big { font-size: 15px; }
+@media (max-width: 460px) { #covers .card .title.big { font-size: 13px; } #covers .card .tag { font-size: 10px; padding: 1px 6px; } }
+.card.hookc .cover { filter: blur(5px) brightness(.38) saturate(1.2); transform: scale(1.1); }
+.card .tag { font-size: 11px; background: rgba(255,255,255,.16); border: 1px solid rgba(255,255,255,.3); border-radius: 999px; padding: 2px 8px; width: fit-content; }
+.pick { flex: 0 0 auto; display: grid; gap: 6px; scroll-snap-align: start; width: min(132px, 33vw); }
+.pick .card { width: 100%; }
+.fx { display: grid; gap: 2px; font-size: 11.5px; color: var(--muted); line-height: 1.35; }
+.fx span { display: flex; justify-content: space-between; gap: 4px; white-space: nowrap; }
+.fx b { font-weight: 500; color: var(--ink); letter-spacing: 1px; }
+.fx .who { justify-content: flex-start; gap: 5px; color: var(--ink); }
+.cap { font-size: 11.5px; color: var(--muted); line-height: 1.3; }
+.bait .gold { font-size: 11px; color: var(--muted); }
+.bait .gold b { color: var(--gold); letter-spacing: 1px; font-weight: 500; }
+/* 결과: 실제 기록과 비교 */
+.real-box { border: 1px solid rgba(255,197,49,.45); background: rgba(255,197,49,.06); border-radius: 14px; padding: 10px 12px; display: grid; gap: 8px; }
+.real-box h3 { margin: 0; font-family: var(--font-display); font-weight: 400; font-size: 17px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.real-box h3 small { font-family: var(--font-body); font-size: 11.5px; color: var(--muted); }
+.real-choices { margin: 0; padding: 0; list-style: none; display: grid; gap: 3px; font-size: 13px; }
+.real-choices li { display: grid; grid-template-columns: 3.6em 1fr; gap: 6px; }
+.real-choices .k { color: var(--muted); }
+.real-choices .same { color: var(--good); } .real-choices .diff { color: var(--ok); }
+.vs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.vs div { background: rgba(255,255,255,.04); border-radius: 10px; padding: 6px 8px; min-width: 0; }
+.vs .lbl { font-size: 11px; color: var(--muted); }
+.vs .me { font-family: var(--font-display); font-size: 16px; font-variant-numeric: tabular-nums; }
+.vs .real { font-size: 12px; color: var(--gold); font-variant-numeric: tabular-nums; }
+.baits { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.bait { display: grid; justify-items: center; gap: 4px; background: rgba(255,255,255,0.04); border: 1.5px solid var(--panel-line); border-radius: 14px; padding: 10px 6px; font-size: 12.5px; line-height: 1.3; text-align: center; }
+.bait svg { width: 38px; height: 38px; }
+.bait[aria-pressed="true"] { border-color: var(--gold); background: rgba(255,197,49,0.1); }
+.sub-h { font-family: var(--font-display); font-size: 17px; margin: 2px 0 -4px; }
+.spots { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 460px) { .spots { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.spot { display: grid; gap: 3px; text-align: left; background: rgba(255,255,255,0.04); border: 1.5px solid var(--panel-line); border-left: 5px solid var(--c); border-radius: 14px; padding: 9px 10px; }
+.spot b { font-family: var(--font-display); font-weight: 400; font-size: 17px; }
+.spot span { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.spot[aria-pressed="true"] { border-color: var(--c); background: rgba(255,255,255,0.12); }
+.row-btns { display: flex; gap: 8px; }
+.row-btns.sticky { position: sticky; bottom: -18px; margin: 2px calc(-1 * var(--pad)) -18px; padding: 12px var(--pad) 18px; background: linear-gradient(to bottom, rgba(8,28,36,0), rgba(8,28,36,0.96) 30%); border-radius: 0 0 22px 22px; }
+.sheet.dock { overflow: visible; }
+.sheet.dock .row-btns.sticky { position: static; margin: 0; padding: 0; background: none; }
+.primary { flex: 1; background: var(--accent); color: var(--accent-ink); border: 0; border-radius: 14px; padding: 13px 16px; font-family: var(--font-display); font-size: 20px; }
+.primary:disabled { opacity: .4; cursor: default; }
+.ghost { background: transparent; border: 1px solid var(--panel-line); border-radius: 14px; padding: 12px 14px; font-size: 14px; color: var(--muted); }
+
+/* 결과 */
+.result-big { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.result-big:focus { outline: none; }
+.result-big .num { font-family: var(--font-display); font-size: 42px; line-height: 1; color: var(--accent); font-variant-numeric: tabular-nums; }
+.result-big .lbl { font-size: 14px; color: var(--muted); }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+@media (max-width: 460px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.stat { background: rgba(255,255,255,0.04); border: 1px solid var(--panel-line); border-radius: 12px; padding: 8px 10px; min-width: 0; }
+.stat .lbl { font-size: 11.5px; color: var(--muted); line-height: 1.3; }
+.stat .val { font-family: var(--font-display); font-size: 19px; font-variant-numeric: tabular-nums; }
+.grade { font-family: var(--font-display); font-size: 13px; padding: 1px 8px; border-radius: 999px; color: #1b1020; white-space: nowrap; display: inline-block; vertical-align: 2px; }
+.grade.low { background: var(--low); } .grade.ok { background: var(--ok); } .grade.good { background: var(--good); } .grade.great { background: var(--great); }
+.notes { margin: 0; padding-left: 1.1em; font-size: 14px; display: grid; gap: 3px; }
+.logline { font-size: 12.5px; color: var(--muted); border-top: 1px dashed var(--panel-line); padding-top: 8px; }
+.disclaimer { font-size: 11.5px; color: var(--muted); margin: 0; line-height: 1.5; }
+
+/* 시작 */
+.overlay { position: absolute; inset: 0; z-index: 6; display: grid; place-items: center; background: radial-gradient(ellipse at 50% 30%, rgba(30,70,80,0.35), rgba(4,16,22,0.9)); padding: 24px max(16px, env(safe-area-inset-right, 0px)) 24px max(16px, env(safe-area-inset-left, 0px)); }
+.start-card { max-width: 420px; text-align: center; display: grid; gap: 14px; }
+.start-card .kicker { font-size: 12px; letter-spacing: .08em; color: var(--muted); }
+.start-card h1 { font-family: var(--font-display); font-weight: 400; font-size: clamp(42px, 12vw, 66px); margin: 0; line-height: 1; text-shadow: 0 4px 18px rgba(0,0,0,0.35); }
+.start-card h1 small { display: block; font-size: 18px; color: var(--muted); margin-top: 6px; }
+.start-card p { margin: 0; color: var(--muted); line-height: 1.6; }
+.howto { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 12px; color: var(--muted); }
+.howto b { display: block; font-family: var(--font-display); font-weight: 400; font-size: 15px; color: var(--ink); }
+.lang-btns { display: grid; gap: 8px; margin-top: 4px; }
+
+/* 조황 일지 */
+.journal { position: absolute; z-index: 7; inset: 0; background: rgba(3,14,20,0.75); display: grid; place-items: end center; }
+.journal-card { width: 100%; max-width: 620px; max-height: 70%; overflow-y: auto; background: var(--panel); border: 1px solid var(--panel-line); border-radius: 22px 22px 0 0; padding: 16px max(16px, env(safe-area-inset-right, 0px)) calc(env(safe-area-inset-bottom, 0px) + 16px) max(16px, env(safe-area-inset-left, 0px)); display: grid; gap: 10px; }
+.journal-card h2 { font-family: var(--font-display); font-weight: 400; margin: 0; font-size: 22px; }
+.jtop { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.entry { border: 1px solid var(--panel-line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 4px; font-size: 13.5px; }
+.entry .t { font-weight: 700; }
+.entry .m { color: var(--muted); font-variant-numeric: tabular-nums; }
+.lil-gui.root { position: absolute !important; top: calc(env(safe-area-inset-top, 0px) + 120px) !important; right: max(8px, env(safe-area-inset-right, 0px)) !important; z-index: 5 !important; width: min(250px, 70vw) !important; max-height: 46vh; overflow-y: auto; --widget-height: 18px; font-size: 11px; }
+@media (prefers-reduced-motion: reduce) { .toast, .card, .zlabel { transition: none; } .bite .mark, .bite.hit .rays, .pow.on, .flash.on, .reel .cue.tap, .reel.run .bar, .reel.danger .tbar, .pull b, .num.bump { animation: none; } .catch.on { animation: none; transform: translateX(-50%); } .pow.on, .catch.on { opacity: 1; } }
+</style>
+
+<div id="app">
+  <canvas id="c" role="application" tabindex="0"></canvas>
+  <div class="sr" id="sr" role="status" aria-live="polite"></div>
+  <div class="sr" id="srAlert" role="alert" aria-live="assertive"></div>
+
+  <div class="hud">
+    <div class="hud-row">
+      <div class="score">
+        <div class="lbl" data-t="hudTotal"></div>
+        <div class="num" id="total">0</div>
+        <div class="sub" id="castNo"></div>
+      </div>
+      <div class="hud-btns">
+        <button class="chip-btn" id="btnJournal" data-t="journal"></button>
+        <button class="chip-btn" id="btnTune" data-t="tune"></button>
+        <button class="chip-btn" id="btnSound" aria-pressed="true"></button>
+        <button class="chip-btn" id="btnLang"></button>
+      </div>
+    </div>
+    <div class="legend" id="legend"></div>
+  </div>
+
+  <div id="zlabels"></div>
+  <div class="aimtag" id="aimtag" hidden></div>
+  <div class="arrive" id="arrive" hidden><b id="arriveName"></b><span id="arriveWho"></span><button class="primary" id="sitBtn"></button><small id="sitKeys"></small></div>
+  <div class="stick" id="stick" hidden><i></i></div>
+  <div class="arrive between" id="between" hidden><b id="betweenTitle"></b><span id="betweenSub"></span><div class="row-btns"><button class="ghost" id="moveBtn"></button><button class="primary" id="recastBtn"></button></div><small id="betweenKeys"></small></div>
+  <div class="flash" id="flash"></div>
+  <div class="bite" id="bite" hidden><div class="rays"></div><div class="ring"></div><div class="mark">!</div></div>
+  <div class="pow" id="pow"></div>
+  <div class="catch" id="catch"><b id="catchName"></b><span id="catchSub"></span></div>
+  <div class="pull" id="pull" hidden><b id="pullArrow"></b><span id="pullWord"></span><small id="pullKeys"></small></div>
+  <div class="reel" id="reel" hidden>
+    <div class="cue" id="reelCue"><i class="spool" id="spool"></i><span id="reelWord"></span><small id="reelKeys"></small></div>
+    <div class="bar"><div class="fill" id="reelFill"></div></div>
+    <div class="line"><span id="lineWord"></span><div class="tbar"><i id="tension"></i></div></div>
+    <div class="time"><i id="reelTime"></i></div>
+    <div class="warn" id="reelWarn"></div>
+  </div>
+  <div class="coach" id="coach" hidden></div>
+  <div class="toast" id="toast" role="status"></div>
+  <button class="chip-btn skip" id="btnSkip" hidden data-t="skip"></button>
+
+  <section class="sheet" id="sheet" hidden><div class="sheet-inner" id="sheetInner"></div></section>
+
+  <section class="overlay" id="start">
+    <div class="start-card">
+      <div class="kicker">INTERACTIVE 3D · REELS FISHING</div>
+      <h1>릴스 낚시<small>Reels Fishing</small></h1>
+      <p>릴스라는 찌를 던져 조회수라는 물고기 떼를 부르고, 그 안에서 팔로워를 건져 보세요.<br>Cast a reel, draw a school of views, and catch the followers inside it.</p>
+      <div class="howto">
+        <div><b>1 · 기획</b>릴스·훅·미끼<br>Plan the reel</div>
+        <div><b>2 · 조준</b>끌어서 던져요<br>Drag to aim</div>
+        <div><b>3 · 챔질</b>쑥 잠기면 탭!<br>연타로 끌어올려요<br>Tap the dunk, mash to reel</div>
+      </div>
+      <div class="lang-btns">
+        <button class="primary" id="startKo">한국어로 시작</button>
+        <button class="ghost" id="startEn">Start in English</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="journal" id="journal" hidden>
+    <div class="journal-card" role="dialog" aria-modal="true" aria-labelledby="jTitle">
+      <div class="jtop"><h2 id="jTitle" data-t="journal"></h2><button class="ghost" id="jClose" data-t="close"></button></div>
+      <div id="jList" style="display:grid;gap:8px"></div>
+      <p class="disclaimer" data-t="disclaimer"></p>
+    </div>
+  </section>
+</div>
+
+<script type="module" src="js/main.js"></script>

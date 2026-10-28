@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>수달 미리보기</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #241d38; color: #f3e9da; font: 14px/1.4 system-ui, sans-serif; overflow: hidden; }
+  #ui { position: fixed; left: 12px; top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; background: rgba(20, 14, 32, 0.7); padding: 10px 12px; border-radius: 10px; max-width: calc(100vw - 48px); }
+  button { background: #3a2f55; color: inherit; border: 1px solid #5a4a80; border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
+  button.on { background: #f08a2c; border-color: #f08a2c; color: #241d38; }
+  label { display: flex; gap: 6px; align-items: center; }
+  #info { position: fixed; left: 12px; bottom: 12px; font: 12px ui-monospace, monospace; opacity: 0.8; }
+</style>
+</head>
+<body>
+<div id="ui">
+  <button data-mode="idle">1 대기</button>
+  <button data-mode="walk">2 걷기</button>
+  <button data-mode="seated">3 앉기</button>
+  <label>속도 <input id="speed" type="range" min="0" max="1" step="0.05" value="1"></label>
+  <label><input id="reduced" type="checkbox"> 움직임 줄이기</label>
+  <label><input id="orbit" type="checkbox" checked> 카메라 회전</label>
+  <label>각도 <input id="angle" type="range" min="0" max="6.28" step="0.05" value="0.6"></label>
+</div>
+<div id="info"></div>
+<script type="module">
+import * as THREE from "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js";
+import { createOtter } from "../js/otter.js";
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2b2342);
+scene.fog = new THREE.Fog(0x2b2342, 8, 18);
+const camera = new THREE.PerspectiveCamera(40, 1, 0.05, 50);
+
+// 노을 조명
+scene.add(new THREE.HemisphereLight(0xffd2b0, 0x3a3050, 1.3));
+const sun = new THREE.DirectionalLight(0xffb27a, 2.2);
+sun.position.set(4, 6, 3); sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -3, right: 3, top: 3, bottom: -3 });
+scene.add(sun);
+const ground = new THREE.Mesh(new THREE.CylinderGeometry(3, 3.1, 0.1, 32), new THREE.MeshStandardMaterial({ color: 0xc9b98f, roughness: 1, flatShading: true }));
+ground.position.y = -0.05; ground.receiveShadow = true; scene.add(ground);
+
+// 손 위치 표시 + 앉았을 때 낚싯대 예시
+const marker = new THREE.Mesh(new THREE.SphereGeometry(0.035, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff2020, depthTest: false }));
+marker.renderOrder = 10; scene.add(marker);
+const rodGeo = new THREE.CylinderGeometry(0.012, 0.022, 1.6, 6); rodGeo.translate(0, 0.8, 0);
+const rod = new THREE.Mesh(rodGeo, new THREE.MeshStandardMaterial({ color: 0x3b2a1e })); scene.add(rod);
+
+let otter, mode = "idle";
+const $ = id => document.getElementById(id);
+function build() {
+  if (otter) scene.remove(otter.group);
+  otter = createOtter({ reduced: $("reduced").checked });
+  otter.group.traverse(o => { if (o.isMesh) o.castShadow = true; });
+  scene.add(otter.group);
+  const h = otter.handLocal;
+  $("info").textContent = `handLocal = (${h.x.toFixed(3)}, ${h.y.toFixed(3)}, ${h.z.toFixed(3)})`;
+}
+build();
+$("reduced").onchange = build;
+
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll("button[data-mode]").forEach(b => b.classList.toggle("on", b.dataset.mode === m));
+}
+document.querySelectorAll("button[data-mode]").forEach(b => b.onclick = () => setMode(b.dataset.mode));
+addEventListener("keydown", e => { const m = { 1: "idle", 2: "walk", 3: "seated" }[e.key]; if (m) setMode(m); });
+setMode("idle");
+
+function resize() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); }
+addEventListener("resize", resize); resize();
+
+const clock = new THREE.Clock(), hand = new THREE.Vector3(), up = new THREE.Vector3(0, 1, 0), rodDir = new THREE.Vector3();
+let camA = 0.6;
+renderer.setAnimationLoop(() => {
+  const dt = clock.getDelta(), t = clock.elapsedTime;
+  otter.update(dt, { speed: mode === "walk" ? +$("speed").value : 0, seated: mode === "seated", time: t });
+  hand.copy(otter.handLocal); otter.group.localToWorld(hand);
+  marker.position.copy(hand);
+  rod.visible = mode === "seated";
+  rod.position.copy(hand);
+  rodDir.set(0, 0.55, 1).normalize().applyQuaternion(otter.group.quaternion);
+  rod.quaternion.setFromUnitVectors(up, rodDir);
+  if ($("orbit").checked) { camA = (camA + dt * 0.35) % (Math.PI * 2); $("angle").value = camA; } else camA = +$("angle").value;
+  camera.position.set(Math.sin(camA) * 3.6, 1.5, Math.cos(camA) * 3.6);
+  camera.lookAt(0, 0.75, 0);
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
